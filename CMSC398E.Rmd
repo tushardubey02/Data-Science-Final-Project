@@ -1,0 +1,129 @@
+---
+title: "Final Project"
+author: "Tushar Dubey"
+date: '2023-05-12'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## SQL Connection
+
+Connects to SQL database
+
+```{r}
+library(RMySQL)
+mysqlconnection = dbConnect(RMySQL::MySQL(),
+                            dbname='final_proj',
+                            host='localhost',
+                            port=3306,
+                            user='root',
+                            password='cmsc398e')
+
+```
+
+## SQL 
+#### Problem: Valorant is a tactical first person shooter video game with a massive player base. There is a competitive scene in which professional players compete to win a championship for fame and glory. At the end of the year Valorant hosts "Champions" (akin to what the World Cup is to soccer) and 8 teams with 5 players each play to be the best. This data set shows performance statistics from each of those players and I will be analyzing each of their performances. I wonder if there is a correlation between a player's headshot percentage and their rating. There is a myth that in order to be a good valorant player you must hit a lot of headshots but I would like to see if this myth is true or false using data from the best players in the world. I will be testing to see if there is a correlation between a players headshot percentage and their associated rating. My hypothesis will be: a player's headshot percentage has no effect on their overall player rating. I will use a scatter plot and linear regression to determine whether or not my hypothesis is true or not. 
+
+#### SQL Components Used: I cleaned my data of null values. I used avg() as my aggregate function. I used rank() and format(). 
+(note: sql comments are causing errors so I will explain each code block using text)
+
+
+The player HS is our independent variable and the player rating is the dependent variable in our case.
+```{sql, connection = mysqlconnection}
+
+SELECT player_name, player_ACS, player_rating, player_HS
+FROM valorant
+WHERE player_HS IS NOT NULL AND player_rating IS NOT NULL;
+
+```
+Remove null values and show all player headshot percentages
+```{sql, connection = mysqlconnection}
+CREATE TABLE cleaned_data15 AS
+SELECT
+  player_name,
+  COALESCE(player_HS, 0) AS player_HS 
+FROM
+  valorant
+WHERE
+  player_HS IS NOT NULL;
+
+```
+
+```{sql, connection = mysqlconnection}
+SELECT * FROM cleaned_data15
+```
+
+
+The following code will take each player and compare their headshot percentage to the average HS%. Then it will create a new column that will compare each players HS% to the average and compute the delta. This will give us an idea of how the player stands compared to the average headshot percentage. It does so by converting the percentages to values and then computing differences. 
+```{sql connection=mysqlconnection}
+WITH cleaned_data AS (
+  SELECT
+    player_name,
+    COALESCE(player_HS, 0) AS player_HS 
+  FROM
+    valorant
+  WHERE
+    player_HS IS NOT NULL
+),
+average_hs AS (
+  SELECT
+    player_name,
+    player_HS,
+    FORMAT(AVG(player_HS) OVER (), 2) AS avg_HS_percentage,
+    RANK() OVER (PARTITION BY NULL ORDER BY player_HS) AS hs_rank 
+  FROM
+    cleaned_data
+)
+SELECT
+  player_name,
+  FORMAT(player_HS, 2) AS player_HS,
+  avg_HS_percentage,
+  FORMAT(player_HS - avg_HS_percentage, 2) AS HS_delta
+FROM
+  average_hs;
+
+```
+
+
+```{r}
+# Read the CSV file and remove NAs
+data <- read.csv("vlr_vct2022_data.csv")
+data <- na.omit(data)
+
+# Convert player_HS from a percentage to a number for plotting purposes
+data$player_HS <- as.numeric(gsub("%", "", data$player_HS))
+
+#This is the scatter plot with hs% on x axis and player rating on y
+plot(data$player_HS, data$player_rating, xlab = "Headshot %", ylab = "Player Rating", main = "Scatter Plot")
+
+# Perform linear regression
+lm_model <- lm(player_rating ~ player_HS, data = data)
+summary(lm_model)
+
+set.seed(123)
+train_indices <- sample(nrow(data), floor(0.7 * nrow(data)))
+train_data <- data[train_indices, ]
+test_data <- data[-train_indices, ]
+
+# fitting linear regression model on train data
+lm_model_train <- lm(player_rating ~ player_HS, data = train_data)
+test_data$player_HS <- as.numeric(gsub("%", "", test_data$player_HS))
+
+predictions <- predict(lm_model_train, newdata = test_data)
+
+# compute rmse and r^2 values
+rmse <- sqrt(mean((predictions - test_data$player_rating)^2))
+r_squared <- summary(lm_model_train)$r.squared
+
+cat("Root Mean Squared Error (RMSE):", rmse)
+cat("\nR-squared (R^2):", r_squared)
+
+```
+We can see here that the R^2 value is 0.00952. This means that there is a very weak correlation between HS% and player rating. We can say then that the players headshot percentage has no effect on the players rating. 
+
+My hypothesis was that a players headshot percentage has no effect on the players rating. A higher HS% does not lead to a higher player rating. I performed linear regression to see if there is a correlation between HS% and player rating. If the R^2 value is less than 0.7 then we can conclude that an increase in the players headshot percentage will have no effect on the players rating. I chose to use a scatter plot to compare my independent and dependent variables. We can tell visually that there does not seem to be any apparent correlation between the two variables. This is further supported by the value computed for R^2. The value is 0.00952 which is very low. We can conclude with this that the players headshot percentage has no effect on their rating. My hypothesis was accepted so we can conclude that the players' headshot percentages have no effect on their rating.
